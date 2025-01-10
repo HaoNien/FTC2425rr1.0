@@ -1,10 +1,9 @@
 package org.firstinspires.ftc.teamcode;
 
-import com.acmerobotics.roadrunner.geometry.Pose2d;
-import com.acmerobotics.roadrunner.geometry.Vector2d;
+
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 
-import org.firstinspires.ftc.teamcode.trajectorysequence.TrajectorySequence;
+
 
 @Autonomous
 public class AUTOTest extends robotBase{
@@ -120,8 +119,7 @@ public class AUTOTest extends robotBase{
 
     @Override
     protected void robotInitLoop() {
-        armPosNow = armL.getCurrentPosition() / arm2deg; // 讀取手臂當前角度
-        armTurn2angle(45);                       // 將手臂維持在目標角度
+        armSubsystem.moveToAngle();                       // 將手臂維持在目標角度
 
 
     }
@@ -131,6 +129,7 @@ public class AUTOTest extends robotBase{
 
         drive.update();
         armTurn2angle(armTarget);
+        slideSubsystem.slideToPosition();
         slideToPosition(slideTarget);
         wristToPosition(lift, turn);
 

@@ -1,4 +1,3 @@
-
 package org.firstinspires.ftc.teamcode;
 
 import static com.arcrobotics.ftclib.util.MathUtils.clamp;
@@ -6,173 +5,152 @@ import static com.arcrobotics.ftclib.util.MathUtils.clamp;
 import com.acmerobotics.dashboard.FtcDashboard;
 import com.acmerobotics.dashboard.config.Config;
 import com.acmerobotics.dashboard.telemetry.MultipleTelemetry;
-import com.acmerobotics.roadrunner.geometry.Pose2d;
+
+import com.acmerobotics.roadrunner.Pose2d;
+import com.acmerobotics.roadrunner.PoseVelocity2d;
+import com.acmerobotics.roadrunner.Vector2d;
+import com.arcrobotics.ftclib.gamepad.ButtonReader;
+import com.arcrobotics.ftclib.gamepad.GamepadEx;
+import com.arcrobotics.ftclib.gamepad.GamepadKeys;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
+import org.firstinspires.ftc.teamcode.subsystem.ArmSubsystem;
 
 @Config
-@TeleOp(name = " PotatoLinOpMode", group = "Linear OpMode")
+@TeleOp(name = "PotatoLinOpMode", group = "Linear OpMode")
 public class PotatoLinOpMode extends robotBase {
+
     private final ElapsedTime runtime = new ElapsedTime();
-
-
     public static double slide_Speed = 10;
     public static double arm_Speed = 5;
     private long lastTime = System.currentTimeMillis();
-    private int loopCount = 0;
-    int loopCountHZ = 0;
-    double clawPos = 0.5;
+    private int loopCount = 0, loopCountHZ = 0;
 
-    // 定義兩個獨立的狀態機
-    private enum RobotStateB {
-        STATE_1, STATE_2, STATE_3, STATE_4, STATE_5, STATE_6, STATE_7
-    }
+    // Gamepad & ButtonReader
+    private GamepadEx gamepadEx2;
+    private ButtonReader bButtonReader, yButtonReader, xButtonReader, aButtonReader, leftBumperReader, rightBumperReader;
 
-    private enum RobotStateY {
-        STATE_1, STATE_2, STATE_3, STATE_4, STATE_5, STATE_6, STATE_7
-    }
+    // 狀態機枚舉類型與當前狀態
+    private enum RobotState {STATE_1, STATE_2, STATE_3, STATE_4, STATE_5, STATE_6, STATE_7, STATE_8}
 
-    private enum RobotStateX {
-        STATE_1, STATE_2, STATE_3, STATE_4, STATE_5, STATE_6, STATE_7, STATE_8
-    }
+    private RobotState currentStateB = RobotState.STATE_7;
+    private RobotState currentStateY = RobotState.STATE_7;
+    private RobotState currentStateX = RobotState.STATE_7;
+    private RobotState currentStateA = RobotState.STATE_1;
 
-    private enum RobotStateA {
-        STATE_1, STATE_2
-    }
-
-    boolean togglePressed = false; // 防抖動變數
-
-    private RobotStateB currentStateB = RobotStateB.STATE_7;
-    private RobotStateY currentStateY = RobotStateY.STATE_7;
-
-    private RobotStateX currentStateX = RobotStateX.STATE_7;
-
-    private RobotStateA currentStateA = RobotStateA.STATE_1;
-
-    private boolean wasButtonPressedB = false, stateExecutedB = true;
-    private boolean wasButtonPressedY = false, stateExecutedY = true;
-    private boolean wasButtonPressedX = false, stateExecutedX = true;
-
-    private boolean wasButtonPressedA = false, stateExecutedA = true;
-
-
+    @Override
     public void robotInit() {
         telemetry = new MultipleTelemetry(telemetry, FtcDashboard.getInstance().getTelemetry());
-        slide.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        slide.setPower(0);
-        slide.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-
-
-        armR.setPower(0);
-        armL.setPower(0);
-        armL.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        armL.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        armR.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        armR.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        //armPosNow = armL.getCurrentPosition() / arm2deg;
-
-        wristToPosition(-90, 0);
+        wristSubsystem.wristToPosition(-90, 0);
         telemetry.addData("Status", "Initialized");
         telemetry.update();
-        // 在 INIT 階段持續維持手臂的角度直到 waitForStart()
 
+        // 初始化 GamepadEx 和按鈕監聽器
+        gamepadEx2 = new GamepadEx(gamepad2);
+        bButtonReader = new ButtonReader(gamepadEx2, GamepadKeys.Button.B);
+        yButtonReader = new ButtonReader(gamepadEx2, GamepadKeys.Button.Y);
+        xButtonReader = new ButtonReader(gamepadEx2, GamepadKeys.Button.X);
+        aButtonReader = new ButtonReader(gamepadEx2, GamepadKeys.Button.A);
+        leftBumperReader = new ButtonReader(gamepadEx2, GamepadKeys.Button.LEFT_BUMPER);
+        rightBumperReader = new ButtonReader(gamepadEx2, GamepadKeys.Button.RIGHT_BUMPER);
     }
 
     @Override
     protected void robotInitLoop() {
-        armTurn2angle(45);                       // 將手臂維持在目標角度
-
-        telemetry.addData("Arm Position", armPosNow);
-        telemetry.addData("Target Angle", armTarget);
+        armSubsystem.setArmTarget(45);
+        armSubsystem.moveToAngle();
+        telemetry.addData("Arm Position", armSubsystem.getArmPosNow());
+        telemetry.addData("Target Angle", armSubsystem.getArmTarget());
         telemetry.update();
     }
 
     @Override
     public void robotStart() {
-        // run until the end of the match (driver presses STOP)
+        loopCount++;
+        // 讀取按鈕狀態
+        bButtonReader.readValue();
+        yButtonReader.readValue();
+        xButtonReader.readValue();
+        aButtonReader.readValue();
+        leftBumperReader.readValue();
+        rightBumperReader.readValue();
 
+        // Claw 控制
+        if (leftBumperReader.wasJustPressed()) clawSubsystem.openClaw();
+        if (rightBumperReader.wasJustPressed()) clawSubsystem.closeClaw();
 
+        // 管理按鈕狀態機
+        if (bButtonReader.wasJustPressed()) switchStateB();
+        if (yButtonReader.wasJustPressed()) switchStateY();
+        if (xButtonReader.wasJustPressed()) switchStateX();
+        if (aButtonReader.wasJustPressed()) switchStateA();
 
-        long currentTime = System.currentTimeMillis();
-        loopCount++; // 每次迴圈執行時增加計數器
-        //armPosNow = armL.getCurrentPosition() / arm2deg;
-        //armPosNow = armR.getCurrentPosition()/armEnc2deg;
+        // 狀態機執行
+        executeStateLogic();
 
-        //slidePosNow = (slide.getCurrentPosition() / slide2lenth) * 2 + smin;
+        // 控制 Slide 與 Arm
+        controlSlide();
+        controlArm();
+        controlWrist();
+        driveRobot();
+        loopcount();
+        // 顯示數據
+        showTelemetryData();
+    }
 
-
-        // 管理 B 按鈕的狀態機
-        manageStateMachineB();
-        // 管理 Y 按鈕的狀態機
-        manageStateMachineY();
-        manageStateMachineX();
-        manageStateMachineA();
-
-        if (gamepad2.left_bumper) Claw.setPosition(claw_Open);
-        if (gamepad2.right_bumper) Claw.setPosition(claw_Close);
-
-        //slide
+    // 控制 Slide
+    private void controlSlide() {
         double gp2_r_Y = gamepad2.right_stick_y;
-
-        if (gp2_r_Y > 0.1 || gp2_r_Y < -0.1)
-            slideTarget = slidePosNow + (-gp2_r_Y * slide_Speed);
-        slideTarget = clamp(slideTarget,smin,smax);
-
-        slideToPosition(slideTarget);
-        if (gamepad2.left_stick_button && !togglePressed) {
-            isHangingMode = !isHangingMode; // 切換模式
-            togglePressed = true; // 防抖動
-        } else if (!gamepad2.left_stick_button) {
-            togglePressed = false; // 重置防抖動
+        if (Math.abs(gp2_r_Y) > 0.1) {
+            slideSubsystem.setTarget(slideSubsystem.getSlidePosNow() + (-gp2_r_Y * slide_Speed)) ;
         }
+        slideSubsystem.moveToPosition(armSubsystem.getArmPosNow());
+    }
+
+    // 控制 Arm
+    private void controlArm() {
+        armSubsystem.setSlidePosNow(slideSubsystem.getSlidePosNow());
         double gp2_l_Y = gamepad2.left_stick_y;
+        if (Math.abs(gp2_l_Y) > 0.3) {
+            armSubsystem.setArmTarget(armSubsystem.getArmPosNow() + (gp2_l_Y * arm_Speed));
+        }
 
-        if (gp2_l_Y < -0.3 || gp2_l_Y > 0.3) armTarget = armPosNow + (gp2_l_Y * arm_Speed);
-        armTarget = clamp(armTarget, armBottomLimit, armUpLimit);
+        armSubsystem.moveToAngle();
+    }
 
-        armTurn2angle(armTarget);
-
-//            if (gamepad2.a) {
-//                lift = -90;
-//                turn = 0;
-//            }
-//            if (gamepad2.x) {
-//                lift = 0;
-//                turn = 0;
-//            }
-
+    // 控制手腕
+    private void controlWrist() {
         if (gamepad2.dpad_up) lift += 5;
         else if (gamepad2.dpad_down) lift -= 5;
-        lift =clamp(lift, lift_Mini, lift_Max);
 
         if (gamepad2.dpad_left) turn += 5;
         else if (gamepad2.dpad_right) turn -= 5;
-        turn = clamp(turn, turn_Mini, turn_Max);
 
-        wristToPosition(lift, turn);
-        double gp1ly = -gamepad1.left_stick_y;
-        double gp1lx = -gamepad1.left_stick_x;
-        double gp1rx = -gamepad1.right_stick_x;
-        double gp1ltr = gamepad1.left_trigger;
-        double gp1rtr = gamepad1.right_trigger;
+        lift = clamp(lift, wristSubsystem.getLiftMin(), wristSubsystem.getLiftMax());
+        turn = clamp(turn, wristSubsystem.getTurnMin(), wristSubsystem.getTurnMax());
+        wristSubsystem.wristToPosition(lift, turn);
+    }
 
-        double axial, lateral, yaw;
-        if (Math.abs(gp1ly) < 0.7 && Math.abs(gp1ly) > 0.1) axial = gp1ly / 2;
-        else axial = gp1ly;
-        if (Math.abs(gp1lx) < 0.7 && Math.abs(gp1lx) > 0.1) lateral = gp1lx / 2;
-        else lateral = gp1lx;
-        if (Math.abs(gp1rx) < 0.7 && Math.abs(gp1rx) > 0.1)
-            yaw = (gp1rx) + (gp1ltr / 3) - (gp1rtr / 3);
-        else yaw = gp1rx*1.33 + (gp1ltr / 3) - (gp1rtr / 3);
+    // 駕駛機器人
+    private void driveRobot() {
+        double axial = adjustSpeed(gamepad1.left_stick_y);
+        double lateral = adjustSpeed(gamepad1.left_stick_x);
+        double yaw = adjustYaw(gamepad1.right_stick_x, gamepad1.left_trigger, gamepad1.right_trigger);
+        drive.setDrivePowers(new PoseVelocity2d(
+                new Vector2d(axial,lateral),yaw));
+    }
 
+    private double adjustSpeed(double input) {
+        return (Math.abs(input) < 0.7 && Math.abs(input) > 0.1) ? input / 2 : input;
+    }
 
+    private double adjustYaw(double input, double leftTrigger, double rightTrigger) {
+        return input * 1.33 + (leftTrigger / 3) - (rightTrigger / 3);
+    }
+    private void loopcount(){
+        long currentTime = System.currentTimeMillis();
 
-        drive.setDrivePower(new Pose2d(axial, lateral, yaw));
-        telemetry.addData("Loop Frequency", "%d Hz", loopCountHZ);
-        // 每隔一秒計算一次頻率
         if (currentTime - lastTime >= 1000) {
             loopCountHZ = loopCount;
 
@@ -180,370 +158,148 @@ public class PotatoLinOpMode extends robotBase {
             loopCount = 0; // 重置計數器
             lastTime = currentTime; // 重置時間戳
         }
-
-        //telemetry.addData("pow", drive.getWheelVelocities());
-
-        //telemetry.addData("slide", slide.getCurrentPosition());
-        telemetry.addData("slideCM", slidePosNow);
-        telemetry.addData("slideTAR", slideTarget);
-        telemetry.addData("slidePOW", slidePower);
-        telemetry.addData("slideAmp", slide.getCurrent(CurrentUnit.AMPS));
-
-        telemetry.addData("armNOW", armPosNow);
-        telemetry.addData("armTAR", armTarget);
-        telemetry.addData("armPOWER", armOutput);
-        telemetry.addData("armF", armF);
-        telemetry.addData("armLAmp", armL.getCurrent(CurrentUnit.AMPS));
-        telemetry.addData("armRAmp", armR.getCurrent(CurrentUnit.AMPS));
-
-        telemetry.addData("lift", lift);
-        telemetry.addData("turn", turn);
-
-
-        telemetry.update();
-    }//start
-
-    // **B 按鈕狀態機邏輯**
-    private void manageStateMachineB() {
-        if (gamepad2.b && !wasButtonPressedB) {
-            switchStateB();
-            wasButtonPressedB = true;
-            stateExecutedB = false;
-        } else if (!gamepad2.b) {
-            wasButtonPressedB = false;
-        }
-
-        if (!stateExecutedB) {
-            executeStateLogicB();
-            stateExecutedB = true;
-        }
+    }
+    // 狀態機邏輯執行
+    private void executeStateLogic() {
+        executeStateLogicB();
+        executeStateLogicY();
+        executeStateLogicX();
+        executeStateLogicA();
     }
 
+    // 切換與執行狀態邏輯
     private void switchStateB() {
-        currentStateY = RobotStateY.STATE_7; // 重置另一個模式的狀態
-        currentStateX = RobotStateX.STATE_8; // 重置另一個模式的狀態
+        currentStateB = currentStateB == RobotState.STATE_7 ? RobotState.STATE_1 : RobotState.values()[currentStateB.ordinal() + 1];
+        currentStateY = RobotState.STATE_7; // 重置另一個模式的狀態
+        currentStateX = RobotState.STATE_8; // 重置另一個模式的狀態
 
-        switch (currentStateB) {
-            case STATE_1:
-                currentStateB = RobotStateB.STATE_2;
-                break;
-            case STATE_2:
-                currentStateB = RobotStateB.STATE_3;
-                break;
-            case STATE_3:
-                currentStateB = RobotStateB.STATE_4;
-                break;
-            case STATE_4:
-                currentStateB = RobotStateB.STATE_6;
-                break;
-            case STATE_5:
-                currentStateB = RobotStateB.STATE_6;
-                break;
-            case STATE_6:
-                currentStateB = RobotStateB.STATE_1;
-                break;
-            case STATE_7:
-                currentStateB = RobotStateB.STATE_1;
-                break;
-        }
     }
 
     private void executeStateLogicB() {
-        //鉤子模式
         switch (currentStateB) {
             case STATE_1:
-                armTarget = 20;
-                lift = -20;
-                turn = 0;
-                slideTarget = 40;
-                Claw.setPosition(claw_Open);
-
+                setArmSlidePosition(20, 40, -20, 0, true);
                 break;
             case STATE_2:
-                Claw.setPosition(claw_Close);
-
+                clawSubsystem.closeClaw();
                 break;
             case STATE_3:
-                armTarget = 45;
-
+                armSubsystem.setArmTarget(45);
                 break;
             case STATE_4:
-                armTarget = 90;
-                slideTarget = 52;
-                lift = 90;
+                setArmSlidePosition(90, 52, 90, 0, false);
                 break;
             case STATE_5:
-                slideTarget = 68;
+                slideSubsystem.setTarget(68);
                 break;
             case STATE_6:
-                Claw.setPosition(claw_Open);
+                clawSubsystem.openClaw();
                 break;
+
             case STATE_7:
-                Claw.setPosition(claw_Open);
-
+                clawSubsystem.openClaw();
                 break;
 
-        }
-    }
-
-    // **Y 按鈕狀態機邏輯**
-    private void manageStateMachineY() {
-        if (gamepad2.y && !wasButtonPressedY) {
-            switchStateY();
-            wasButtonPressedY = true;
-            stateExecutedY = false;
-        } else if (!gamepad2.y) {
-            wasButtonPressedY = false;
-        }
-
-        if (!stateExecutedY) {
-            executeStateLogicY();
-            stateExecutedY = true;
         }
     }
 
     private void switchStateY() {
-        currentStateB = RobotStateB.STATE_7; // 重置另一個模式的狀態
-        currentStateX = RobotStateX.STATE_8; // 重置另一個模式的狀態
-
-        switch (currentStateY) {
-            case STATE_1:
-                currentStateY = RobotStateY.STATE_2;
-                break;
-            case STATE_2:
-                currentStateY = RobotStateY.STATE_3;
-                break;
-            case STATE_3:
-                currentStateY = RobotStateY.STATE_4;
-                break;
-            case STATE_4:
-                currentStateY = RobotStateY.STATE_5;
-                break;
-            case STATE_5:
-                currentStateY = RobotStateY.STATE_6;
-                break;
-            case STATE_6:
-                currentStateY = RobotStateY.STATE_7;
-                break;
-            case STATE_7:
-                currentStateY = RobotStateY.STATE_1;
-                break;
-
-        }
+        currentStateY = currentStateY == RobotState.STATE_7 ? RobotState.STATE_1 : RobotState.values()[currentStateY.ordinal() + 1];
+        currentStateB = RobotState.STATE_7; // 重置另一個模式的狀態
+        currentStateX = RobotState.STATE_8; // 重置另一個模式的狀態
     }
 
     private void executeStateLogicY() {
-
-        //高塔模式
         switch (currentStateY) {
             case STATE_1:
-                armTarget = 10;
-                slideTarget = 70;
-                lift = 0;
-                turn = 0;
-                Claw.setPosition(claw_Open);
-
+                setArmSlidePosition(10, 70, 0, 0, true);
                 break;
             case STATE_2:
-                armTarget = 10;
-                lift = -90;
-                turn = 0;
-
+                setArmSlidePosition(10, slideSubsystem.getSmax(), -90, 0, false);
                 break;
             case STATE_3:
-                Claw.setPosition(claw_Close);
+                clawSubsystem.closeClaw();
                 break;
             case STATE_4:
-                armTarget = 20;
-                slideTarget = 40;
-                lift = 0;
-                turn = 0;
-
+                setArmSlidePosition(20, 40, 0, 0, true);
                 break;
             case STATE_5:
-                armTarget = 90;
-                lift = 20;
-                turn = 0;
-                slideTarget = smax;
+                setArmSlidePosition(90, slideSubsystem.getSmax(), 20, 0, false);
                 break;
             case STATE_6:
-                Claw.setPosition(claw_Open);
+                clawSubsystem.openClaw();
                 break;
-            case STATE_7:
-                armTarget = 25;
-                slideTarget = 40;
-                lift = 0;
-                turn = 0;
-
+                case STATE_7:
+                setArmSlidePosition(25, 40, 0, 0, true);
                 break;
-        }
-    }
-
-    // **X 按鈕狀態機邏輯**
-    private void manageStateMachineX() {
-        if (gamepad2.x && !wasButtonPressedX) {
-            switchStateX();
-            wasButtonPressedX = true;
-            stateExecutedX = false;
-        } else if (!gamepad2.x) {
-            wasButtonPressedX = false;
-        }
-
-        if (!stateExecutedX) {
-            executeStateLogicX();
-            stateExecutedX = true;
         }
     }
 
     private void switchStateX() {
-        currentStateY = RobotStateY.STATE_1; // 重置另一個模式的狀態
-        currentStateB = RobotStateB.STATE_1; // 重置另一個模式的狀態
-
-        switch (currentStateX) {
-            case STATE_1:
-                currentStateX = RobotStateX.STATE_2;
-                break;
-            case STATE_2:
-                currentStateX = RobotStateX.STATE_3;
-                break;
-            case STATE_3:
-                currentStateX = RobotStateX.STATE_4;
-                break;
-            case STATE_4:
-                currentStateX = RobotStateX.STATE_5;
-                break;
-            case STATE_5:
-                currentStateX = RobotStateX.STATE_6;
-                break;
-            case STATE_6:
-                currentStateX = RobotStateX.STATE_7;
-                break;
-            case STATE_7:
-                currentStateX = RobotStateX.STATE_8;
-                break;
-            case STATE_8:
-                currentStateX = RobotStateX.STATE_1;
-                break;
-        }
+        currentStateX = currentStateX == RobotState.STATE_8 ? RobotState.STATE_1 : RobotState.values()[currentStateX.ordinal() + 1];
+        currentStateY = RobotState.STATE_1; // 重置另一個模式的狀態
+        currentStateB = RobotState.STATE_1; // 重置另一個模式的狀態
     }
 
     private void executeStateLogicX() {
-
-
         switch (currentStateX) {
             case STATE_1:
-                slideTarget = 70;
-                armTarget = 10;
-                lift = -90;
-                turn = 0;
-                Claw.setPosition(claw_Open);
-
+                setArmSlidePosition(10, 70, -90, 0, true);
                 break;
             case STATE_2:
-                Claw.setPosition(claw_Close);
-
+                clawSubsystem.closeClaw();
                 break;
-
-
             case STATE_3:
-                armTarget = 10;
-                lift = -10;
-                turn = 0;
-                slideTarget = 40;
+                setArmSlidePosition(10, 40, -10, 0, false);
                 break;
-
             case STATE_4:
-                armTarget = 20;
-
-                Claw.setPosition(claw_Open);
+                clawSubsystem.openClaw();
                 break;
-
             case STATE_5:
-                Claw.setPosition(claw_Close);
-
+                clawSubsystem.closeClaw();
                 break;
-
             case STATE_6:
-                slideTarget = 65;
-                armTarget = 50;
-                lift=-10;
-
+                setArmSlidePosition(50, 65, -10, 0, false);
                 break;
-
             case STATE_7:
-                armTarget = 35;
-
+                armSubsystem.setArmTarget(35);
                 break;
-
             case STATE_8:
-                Claw.setPosition(claw_Open);
-
-
+                clawSubsystem.openClaw();
                 break;
-        }
-    }// **A 按鈕狀態機邏輯**
 
-    private void manageStateMachineA() {
-        if (gamepad2.a && !wasButtonPressedA) {
-            switchStateA();
-            wasButtonPressedA = true;
-            stateExecutedA = false;
-        } else if (!gamepad2.a) {
-            wasButtonPressedA = false;
-        }
-
-        if (!stateExecutedA) {
-            executeStateLogicA();
-            stateExecutedA = true;
         }
     }
 
     private void switchStateA() {
+        currentStateA = currentStateA == RobotState.STATE_2 ? RobotState.STATE_1 : RobotState.STATE_2;
+        currentStateY = RobotState.STATE_1; // 重置另一個模式的狀態
+        currentStateB = RobotState.STATE_1; // 重置另一個模式的狀態
 
-
-        switch (currentStateA) {
-            case STATE_1:
-                currentStateA = RobotStateA.STATE_2;
-                break;
-            case STATE_2:
-                currentStateA = RobotStateA.STATE_1;
-                break;
-
-        }
     }
 
     private void executeStateLogicA() {
-        currentStateY = RobotStateY.STATE_1; // 重置另一個模式的狀態
-
-        // 地面收集模式
         switch (currentStateA) {
             case STATE_1:
-                armTarget = 10;
-                slideTarget = 70;
-                lift = 0;
-                turn = 0;
-                Claw.setPosition(claw_Open);
-                lift = -90;
-
+                setArmSlidePosition(10, 70, -90, 0, true);
                 break;
-
             case STATE_2:
-                armTarget = 10;
-                slideTarget = 70;
-                lift = 0;
-                turn = 0;
-                Claw.setPosition(claw_Open);
-                lift = -90;
-
+                setArmSlidePosition(10, 70, -90, 0, true);
                 break;
-
-
         }
     }
+    private void setArmSlidePosition(double armTarget, double slideTarget, double lift, double turn, boolean isClawOpen) {
+        armSubsystem.setArmTarget(armTarget);
+        slideSubsystem.setTarget(slideTarget);
+        wristSubsystem.wristToPosition(lift, turn);
+        if (isClawOpen) clawSubsystem.openClaw();
+        else clawSubsystem.closeClaw();
+    }
 
-
+    private void showTelemetryData() {
+        double[] currents = armSubsystem.getCurrent();
+        telemetry.addData("Loop Frequency", "%d Hz", loopCountHZ);
+        telemetry.addData("Slide Position", slideSubsystem.getSlidePosNow());
+        telemetry.addData("Arm Current L/R", "%f / %f", currents[0], currents[1]);
+    }
 }
-
-
-
-
